@@ -472,7 +472,7 @@ def calculate_middle(clef,line,octave):
 		middle = convert_pitch("C",4) - 2*(line -3)
 	middle += 7*int(octave)
 	return middle
-	
+
 def process_XMLfile(file):
     status=0
 
