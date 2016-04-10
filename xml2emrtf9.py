@@ -6,7 +6,7 @@ import logging
 from objectdefs9 import *
 from optparse import OptionParser
 import sys
-from PyQt4 import QtCore, QtGui, QtWebKit
+from PyQt4 import uic, QtCore, QtGui, QtWebKit
 from PyQt4.QtCore import pyqtSlot
 
 #Version 0.9
@@ -345,7 +345,7 @@ def convert_pitch(s,o):
         logging.critical("Unrecognised note in convert_pitch")
     return n		
         
-def make_note (voice,note, length,accidental, middle):
+def make_note (voice,note, length,accidental, middle, font_object):
     char_table = ['M','N','C','D','E','F','G','A','b','c','d','e','f','g','a','m','n']
     # These are the notes in Paul's font from two leger lines below to 
     # two above the staff
@@ -353,7 +353,6 @@ def make_note (voice,note, length,accidental, middle):
     
     # Check if accidental needed
     #print accidental
-    font_object = The_font_object;
     accidental = voice.check_accidental(note,int(accidental))
     position = note-middle+8
     if position not in range(len(char_table)):
@@ -405,14 +404,13 @@ def make_note (voice,note, length,accidental, middle):
         if remainder>0:
             if options.single_accidentals:
                 accidental = 0
-            extra_bit = make_note (voice,note, remainder,accidental, middle)
+            extra_bit = make_note (voice,note, remainder,accidental, middle, font_object)
         return modifier+font+char_table[position] + dot + extra_bit
     else:
         logging.warning ("Note found outside printable range. Note/Position: "+ str(note)+ str(position))
         return "+"
 
-def make_rest (length):
-    font_object = The_font_object;
+def make_rest (length, font_object ):
     #Rests are [ 8, 4, 2, 1, 5] Long, breve, semibreve, minim, quaver rests
     rest=''
     while length >0:
@@ -439,12 +437,12 @@ def make_rest (length):
             length = 0
     return font_object.make_fontstring("crotchetfont") +rest 
     
-def make_barrest(this_voice,n):
+def make_barrest(this_voice,n, font_object):
     m1 = int(this_voice.m1)
     m2 = int(this_voice.m2)
     beat = 512/m2
     logging.debug ("Bar rest of length " + str(n*beat*m1)+ " time: "+str(m1)+"/"+str(m2))
-    return make_rest(n*beat*m1)
+    return make_rest(n*beat*m1, font_object)
     
 def print_key(voice, font_object):
     logging.debug ("Setting key sig for voice: "+ voice.name)
@@ -565,22 +563,6 @@ def process_XMLfile(filename, tune):
         #print voice_ref.events	
     return tune;
 
-class Window(QtGui.QWidget):
-    def __init__(self):
-        QtGui.QWidget.__init__(self)
-        layout = QtGui.QVBoxLayout(self)
-        self.button = QtGui.QPushButton('Select Files', self)
-        layout.addWidget(self.button)
-        self.button.clicked.connect(self.handleButton)
-
-    def handleButton(self):
-        title = self.button.text()
-
-        for path in QtGui.QFileDialog.getOpenFileNames(self, 
-                         title, "\users\paul\Dropbox\Scores",
-                        "XML files (*.xml)"):
-            process_XMLfile(path, The_tune)
-            create_RTF_from_XML(The_tune, path, The_font_object)
 
 
 def create_RTF_from_XML(tune, path, font_object):
@@ -646,13 +628,13 @@ def create_RTF_from_XML(tune, path, font_object):
 
         for i, (e, n, l, a, o) in enumerate(zip(voice_ref.events,voice_ref.pitch, voice_ref.lengths, voice_ref.accidentals, voice_ref.others)):
             if e=='note':	
-                out_string += make_note(voice_ref,n,l,a, voice_ref.middle)
+                out_string += make_note(voice_ref,n,l,a, voice_ref.middle, font_object)
             elif e =='endmark':
                 out_string 	+= ']'
             elif e=='rest':
-                out_string += make_rest(l)
+                out_string += make_rest(l,font_object)
             elif e == "barrest":
-                out_string += make_barrest(voice_ref,l)
+                out_string += make_barrest(voice_ref,l, font_object)
             elif e == "lyricline":
                 out_string += font_object.make_fontstring("textfont")
                 out_string += "\\fs30"
@@ -747,7 +729,6 @@ def create_RTF_from_XML(tune, path, font_object):
     
         return status
 
-
 def get_options():
     cli_parser = OptionParser(usage = "%prog [options] <xml file>", version="%prog Version: 0.9")
 
@@ -781,27 +762,49 @@ def get_options():
     cli_parser.add_option("-w", "--words_at_end",
         action= "store_true", dest="words_at_end",
         help="words (to a song) are printed at the end of each part")
-
     (options, args) = cli_parser.parse_args()
+   
+dlg_class = uic.loadUiType("design.ui")[0]                 # Load the UI
+ 
+class MyDialogClass(QtGui.QDialog, dlg_class):
+    def __init__(self, parent=None):
+        QtGui.QMainWindow.__init__(self, parent)
+        self.setupUi(self)
+
+        # Bind the event handlers to the buttons
+        self.ChooseFilesButton.clicked.connect(self.getXMLFiles)
+        self.doneButton.clicked.connect(self.closeWindow)
+       
+    # button event handlers
+    def closeWindow(self):
+        self.close()
+
+    def getXMLFiles(self):
+        title = self.ChooseFilesButton.text()
+        log = self.logWindow;
+        The_tune = tunedata()	# Create one instance of the tune object
+        The_font_object = fontdata_class() # And one instance of fontdata
+ 
+        for path in QtGui.QFileDialog.getOpenFileNames(self, 
+                        title, "\users\paul\Dropbox\Scores",
+                    "XML files (*.xml)"):
+            log.append("Processing" + path)
+            process_XMLfile(path, The_tune)
+            create_RTF_from_XML(The_tune, path, The_font_object)
 
 
-###############################################################################
-####################### Main Program starts here ##############################
-###############################################################################
-#usage = "%usage: %prog <xml file> [options]"
-
-import sys
-from PyQt4.QtGui import *
-
-if __name__ == '__main__':
+def main():
     import sys
+    logging.basicConfig(level=logging.DEBUG, format='%(levelname)s - %(message)s')
     app = QtGui.QApplication(sys.argv)
-    The_tune = tunedata()	# Create one instance of the tune object
-    The_font_object = fontdata_class() # And one istance of fontdata
-
-    The_window = Window()
+    The_window = MyDialogClass()
     The_window.show()
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__": main()
+
+    
 
 
 
